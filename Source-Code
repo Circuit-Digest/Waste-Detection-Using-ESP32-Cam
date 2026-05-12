@@ -6,7 +6,7 @@
 // ── Wi-Fi & API ────────────────────────────────────────────────────────────
 const char* WIFI_SSID  = "Yourssidname";
 const char* WIFI_PASS  = "yourwifipassword";
-const char* API_KEY    = "cd_jre_140326_UkVdeG";
+const char* API_KEY    = "YourApiKey";
 const char* serverName = "www.circuitdigest.cloud";
 const char* serverPath = "/api/v1/waste-detection/detect";
 const int   serverPort = 443;
