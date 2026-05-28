@@ -41,7 +41,7 @@ In our daily lives, huge amounts of waste are generated in homes, streets, offic
 
 This project solves that problem with a compact, low-cost, AI-powered system:
 
-> **Press a button → Camera captures waste image → Cloud AI classifies it → Result shown in Serial Monitor**
+> **Press a button → Camera captures waste image → Cloud AI classifies it → Result shown in Serial Monitor also the LED indication for different wastes**
 
 No expensive hardware. No complex ML training. Just plug, configure, and detect! ⚡
 
@@ -74,27 +74,13 @@ No expensive hardware. No complex ML training. Just plug, configure, and detect!
 | 3 | Breadboard | Simplifies and organizes circuit connections |
 | 4 | USB-to-Serial (FTDI) Adapter *(if needed)* | For programming standard ESP32-CAM without onboard USB |
 | 5 | USB Cable | Powers the entire system via laptop/PC |
+| 6 | Red and Green LED | Used as the indications for the different wastes.
 
 > **⚠️ Note:** If you are using the standard ESP32-CAM (without onboard USB), you need a **USB-to-Serial (FTDI) adapter** for programming.
 > - FTDI TX → ESP32-CAM RX (U0R)
 > - FTDI RX → ESP32-CAM TX (U0T)
 > - GND → GND
 > - Hold **GPIO0 LOW** during upload to enter flash mode.
-
----
-
-## 🔌 Circuit Diagram
-
-The push button is connected to **GPIO13** of the ESP32-CAM to trigger image capture.
-
-```
-ESP32-CAM            Push Button
----------            -----------
- GPIO13  ───────────  One Terminal
-  GND    ───────────  Other Terminal
-```
-
-> Connect the ESP32-CAM to your laptop via USB for power. Refer to the circuit diagram image in the repository for a visual guide.
 
 ---
 
@@ -124,93 +110,10 @@ Go to the [CircuitDigest Cloud website](https://circuitdigest.cloud), create a f
 1. Connect all components as per the circuit diagram.
 2. Open the Arduino IDE and install the **ESP32 board package**.
 3. Open the project code and update the following credentials:
-
-```cpp
-const char* WIFI_SSID  = "Your_WiFi_SSID";
-const char* WIFI_PASS  = "Your_WiFi_Password";
-const char* API_KEY    = "Your_API_Key_Here";
-```
-
 4. Select **AI Thinker ESP32-CAM** as the board.
 5. Upload the code. Hold **GPIO0 LOW** if using FTDI.
 6. Open the **Serial Monitor** at **115200 baud**.
 7. Press the push button — the result will appear within seconds!
-
----
-
-## 💻 Code Explanation
-
-### 1. Library Includes
-
-```cpp
-#include "esp_camera.h"
-#include <WiFi.h>
-#include <WiFiClientSecure.h>
-
-WiFiClientSecure client;
-```
-
-Includes libraries for **ESP32 camera control**, **Wi-Fi**, and **secure HTTPS** communication — the foundation for image capture and cloud transfer.
-
----
-
-### 2. Wi-Fi & API Configuration
-
-```cpp
-const char* WIFI_SSID  = "YourSSID";
-const char* WIFI_PASS  = "YourPassword";
-const char* API_KEY    = "YourAPIKey";
-const char* serverName = "www.circuitdigest.cloud";
-const char* serverPath = "/api/v1/waste-detection/detect";
-const int   serverPort = 443;
-```
-
-Defines Wi-Fi credentials and the cloud API endpoint. The `serverPath` points directly to the **waste detection model** that classifies waste.
-
----
-
-### 3. Camera Pin Mapping
-
-```cpp
-#define PWDN_GPIO_NUM  32
-#define XCLK_GPIO_NUM   0
-#define Y2_GPIO_NUM     5
-#define Y3_GPIO_NUM    18
-#define Y9_GPIO_NUM    35
-#define PCLK_GPIO_NUM  22
-// ... (remaining pins)
-```
-
-Maps ESP32 GPIO pins to camera data, clock, and synchronization lines for stable image capture.
-
----
-
-### 4. Camera Initialization
-
-```cpp
-void initCamera() {
-  camera_config_t cfg = {};
-  cfg.pixel_format = PIXFORMAT_JPEG;
-  cfg.frame_size   = FRAMESIZE_VGA;
-  cfg.jpeg_quality = 10;
-  cfg.fb_count     = 1;
-  esp_camera_init(&cfg);
-}
-```
-
-Initializes the camera in **JPEG format** at **VGA resolution** — balancing speed and image quality for reliable cloud classification.
-
----
-
-### 5. Capture & Send
-
-```cpp
-camera_fb_t* fb = esp_camera_fb_get();   // Capture image
-String result = sendImageToAPI(fb);       // Send to cloud API
-esp_camera_fb_return(fb);                 // Free frame buffer
-```
-
-On button press, captures the image and sends it to the cloud via **HTTPS POST**. The API response (classification result) is printed to the Serial Monitor.
 
 ---
 
@@ -224,6 +127,7 @@ WiFi Connected!
 Button Pressed - Capturing Image...
 Image Captured. Sending to API...
 API Response: Non-Biodegradable
+Red Led will glow
 ```
 
 Results can be:
