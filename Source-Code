@@ -4,9 +4,9 @@
 #include <WebServer.h>
 
 // ── Wi-Fi & API ────────────────────────────────────────────────────────────
-const char* WIFI_SSID  = "Yourssidname";
+const char* WIFI_SSID  = "yourssidname";
 const char* WIFI_PASS  = "yourwifipassword";
-const char* API_KEY    = "YourApiKey";
+const char* API_KEY    = "yourapikey";
 const char* serverName = "www.circuitdigest.cloud";
 const char* serverPath = "/api/v1/waste-detection/detect";
 const int   serverPort = 443;
@@ -14,6 +14,11 @@ const int   serverPort = 443;
 // ── Button ─────────────────────────────────────────────────────────────────
 #define TRIGGER_BTN  13
 #define DEBOUNCE_MS  500
+
+// ── LEDs ───────────────────────────────────────────────────────────────────
+#define GREEN_LED    15   // GPIO 15 — glows for biodegradable waste
+#define RED_LED      14   // GPIO 14 — glows for non-biodegradable waste
+#define LED_ON_MS    5000 // how long the LED stays on (5 seconds)
 
 // ── AI Thinker pin map ─────────────────────────────────────────────────────
 #define PWDN_GPIO_NUM  32
@@ -43,6 +48,26 @@ inline bool lockCam(TickType_t wait = portMAX_DELAY) {
   return xSemaphoreTake(camMutex, wait) == pdTRUE;
 }
 inline void unlockCam() { xSemaphoreGive(camMutex); }
+
+// ── LED helper: flash one LED for LED_ON_MS then turn it off ───────────────
+// Non-blocking: spawns a one-shot FreeRTOS task so loop() isn't stalled.
+struct LedJob { uint8_t pin; uint32_t ms; };
+
+void ledTask(void* arg) {
+  LedJob* job = (LedJob*)arg;
+  digitalWrite(job->pin, HIGH);
+  vTaskDelay(pdMS_TO_TICKS(job->ms));
+  digitalWrite(job->pin, LOW);
+  delete job;
+  vTaskDelete(NULL);   // self-delete
+}
+
+void flashLed(uint8_t pin, uint32_t ms = LED_ON_MS) {
+  // Make sure the other LED is off first
+  digitalWrite((pin == GREEN_LED) ? RED_LED : GREEN_LED, LOW);
+  LedJob* job = new LedJob{pin, ms};
+  xTaskCreate(ledTask, "led", 1024, job, 2, NULL);
+}
 
 // ── Camera init ────────────────────────────────────────────────────────────
 void initCamera() {
@@ -95,8 +120,7 @@ bool ensureWiFi() {
   return false;
 }
 
-// ── JSON string parser — extracts value of a string key ───────────────────
-// e.g. "classification": "biodegradable"  →  returns "biodegradable"
+// ── JSON string parser ─────────────────────────────────────────────────────
 String parseJsonString(const String& json, const String& key) {
   int idx = json.indexOf("\"" + key + "\":");
   if (idx == -1) return "";
@@ -108,7 +132,7 @@ String parseJsonString(const String& json, const String& key) {
   return json.substring(start, end);
 }
 
-// ── JSON int parser — reads full number safely ─────────────────────────────
+// ── JSON int parser ────────────────────────────────────────────────────────
 int parseJsonInt(const String& json, const String& key) {
   int idx = json.indexOf("\"" + key + "\":");
   if (idx == -1) return -1;
@@ -165,7 +189,6 @@ void handleStream() {
   uint32_t lastFrame = millis();
 
   while (streamClient.connected()) {
-
     if (millis() - lastFrame > watchdog) {
       Serial.println("[stream] watchdog timeout");
       break;
@@ -217,13 +240,11 @@ void classifyWaste() {
     return;
   }
 
-  // Switch to VGA for sharper API capture
   sensor_t* s = esp_camera_sensor_get();
   s->set_framesize(s, FRAMESIZE_VGA);
   s->set_quality(s, 10);
   delay(150);
 
-  // Flush warm-up frame so AEC settles
   camera_fb_t* warmup = esp_camera_fb_get();
   if (warmup) esp_camera_fb_return(warmup);
   delay(200);
@@ -240,11 +261,9 @@ void classifyWaste() {
 
   Serial.printf("Captured %u bytes\n", fb->len);
 
-  // Restore preview resolution before releasing lock
   s->set_framesize(s, FRAMESIZE_SVGA);
   s->set_quality(s, 8);
 
-  // Copy to heap — releases camera lock before slow HTTPS upload
   size_t   imgLen = fb->len;
   uint8_t* imgBuf = (uint8_t*)malloc(imgLen);
   if (!imgBuf) {
@@ -255,7 +274,7 @@ void classifyWaste() {
   }
   memcpy(imgBuf, fb->buf, imgLen);
   esp_camera_fb_return(fb);
-  unlockCam();  // ← stream resumes here
+  unlockCam();
 
   // ── HTTPS upload ───────────────────────────────────────────────────────
   Serial.println("Sending to API...");
@@ -301,30 +320,76 @@ void classifyWaste() {
   String json = (jsonStart != -1) ? response.substring(jsonStart + 4) : response;
   Serial.println("Response: " + json);
 
-  // ── Parse and report ───────────────────────────────────────────────────
-  // Expected JSON fields: "classification", "biodegradable", "non_biodegradable"
-  String classification  = parseJsonString(json, "classification");
-  int    bioCount        = parseJsonInt(json, "biodegradable");
-  int    nonBioCount     = parseJsonInt(json, "non_biodegradable");
+  // ── Parse result ───────────────────────────────────────────────────────
+  String classification = parseJsonString(json, "classification");
+  int    bioCount       = parseJsonInt(json, "biodegradable");
+  int    nonBioCount    = parseJsonInt(json, "non_biodegradable");
+
+  Serial.println("=== WASTE DETECTION RESULT ===");
 
   if (classification.length() > 0) {
-    Serial.println("Classification: " + classification);
+    Serial.println("Classification      : " + classification);
   }
   if (bioCount >= 0) {
-    Serial.println("Biodegradable items:     " + String(bioCount));
+    Serial.println("Biodegradable items : " + String(bioCount));
   }
   if (nonBioCount >= 0) {
-    Serial.println("Non-biodegradable items: " + String(nonBioCount));
+    Serial.println("Non-biodegradable   : " + String(nonBioCount));
   }
 
-  if (classification.length() == 0 && bioCount < 0 && nonBioCount < 0) {
-    Serial.println("Could not parse waste data from response.");
+  // ── LED indication ─────────────────────────────────────────────────────
+  // Priority logic:
+  //   • If classification string contains "non" → red LED
+  //   • Else if it contains "bio" / "organic" → green LED
+  //   • Fallback: compare counts — whichever is higher wins
+  //   • If both counts are equal and > 0 → both flash red (mixed waste)
+
+  String cls = classification;
+  cls.toLowerCase();
+
+  if (cls.indexOf("non") != -1) {
+    // Explicitly non-biodegradable
+    Serial.println("LED: RED (non-biodegradable)");
+    flashLed(RED_LED);
+
+  } else if (cls.indexOf("bio") != -1 || cls.indexOf("organic") != -1) {
+    // Explicitly biodegradable / organic
+    Serial.println("LED: GREEN (biodegradable)");
+    flashLed(GREEN_LED);
+
+  } else if (bioCount >= 0 && nonBioCount >= 0) {
+    // No clear string — use counts
+    if (nonBioCount > bioCount) {
+      Serial.println("LED: RED (more non-biodegradable items)");
+      flashLed(RED_LED);
+    } else if (bioCount > nonBioCount) {
+      Serial.println("LED: GREEN (more biodegradable items)");
+      flashLed(GREEN_LED);
+    } else if (bioCount > 0) {
+      // Equal non-zero — mixed waste, flash red as warning
+      Serial.println("LED: RED (mixed waste)");
+      flashLed(RED_LED);
+    } else {
+      Serial.println("LED: none (no waste detected)");
+    }
+
+  } else {
+    Serial.println("Could not determine waste type — no LED triggered");
   }
+
+  Serial.println("==============================");
 }
 
 // ── Setup ──────────────────────────────────────────────────────────────────
 void setup() {
   Serial.begin(115200);
+
+  // LEDs
+  pinMode(GREEN_LED, OUTPUT);
+  pinMode(RED_LED,   OUTPUT);
+  digitalWrite(GREEN_LED, LOW);
+  digitalWrite(RED_LED,   LOW);
+
   pinMode(TRIGGER_BTN, INPUT_PULLUP);
 
   camMutex = xSemaphoreCreateMutex();
@@ -336,13 +401,15 @@ void setup() {
   Serial.print("Connecting to WiFi");
   while (WiFi.status() != WL_CONNECTED) { delay(500); Serial.print("."); }
   Serial.println("\nConnected: " + WiFi.localIP().toString());
-  Serial.println("Preview: http://" + WiFi.localIP().toString());
+  Serial.println("Preview:   http://" + WiFi.localIP().toString());
 
   previewServer.on("/",       handleRoot);
   previewServer.on("/stream", handleStream);
   previewServer.begin();
 
   xTaskCreatePinnedToCore(webServerTask, "webTask", 8192, NULL, 1, NULL, 0);
+
+  Serial.println("Ready — press button to classify waste");
 }
 
 // ── Loop (Core 1) ──────────────────────────────────────────────────────────
