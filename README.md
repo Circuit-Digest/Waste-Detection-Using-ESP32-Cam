@@ -202,6 +202,12 @@ Results can be:
 
 ---
 
+## Link For The Full Guide:
+
+https://circuitdigest.com/microcontroller-projects/esp32-cam-waste-detection-using-circuitdigest-cloud
+
+---
+
 <p align="center">
   Made with ❤️ by <a href="https://circuitdigest.com">CircuitDigest</a> | Powered by <a href="https://circuitdigest.cloud">CircuitDigest Cloud AI</a>
 </p>
